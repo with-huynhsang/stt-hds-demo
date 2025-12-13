@@ -1,0 +1,89 @@
+# =============================================================================
+# Frontend Docker Ignore
+# Exclude files not needed in production container
+# =============================================================================
+
+# Dependencies (installed fresh in container)
+node_modules/
+.pnpm-store/
+
+# Build output (created in container)
+dist/
+build/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Testing
+coverage/
+*.lcov
+.nyc_output/
+
+# Tauri (not needed for web deployment)
+src-tauri/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Environment files
+.env
+.env.local
+.env.*.local
+*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# TypeScript build info
+*.tsbuildinfo
+
+# TanStack router cache
+.tanstack/
+
+# Serena/MCP local files
+.serena/
+
+# Test files (not needed in production)
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+__tests__/
+vitest.config.ts
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Configuration files not needed in container
+.prettierrc*
+.eslintrc*
+eslint.config.js
+prettier.config.js
+tsconfig.json
+openapi-ts.config.ts
+.cta.json
+.prettierignore

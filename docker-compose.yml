@@ -1,0 +1,95 @@
+# =============================================================================
+# Docker Compose - Voice2Text Vietnamese
+# Single configuration for development and local run
+# =============================================================================
+# Usage:
+#   Start:      docker compose up -d
+#   Stop:       docker compose down
+#   Rebuild:    docker compose up -d --build
+#   Logs:       docker compose logs -f backend
+#   Shell:      docker compose exec backend bash
+# =============================================================================
+# Note: Frontend runs locally with `npm run dev` for hot reload.
+#       Only Backend is containerized for model isolation.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Backend API Service
+  # FastAPI with Zipformer STT + ViSoBERT-HSD Content Moderation
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: voice2text-backend:latest
+    container_name: voice2text-backend
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Port mapping - Backend API
+    ports:
+      - "8000:8000"
+    
+    # Volume mounts
+    volumes:
+      # Model storage (read-only for security)
+      - ./backend/models_storage:/app/models_storage:ro
+      # Database persistence
+      - ./backend/data:/app/data
+      # Hot reload for development (mount source code)
+      - ./backend/app:/app/app:ro
+      - ./backend/main.py:/app/main.py:ro
+    
+    # Environment configuration
+    environment:
+      # Application
+      - PROJECT_NAME=Real-time Vietnamese STT
+      - API_V1_STR=/api/v1
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+      
+      # CORS - Allow local frontend dev server
+      - ALLOWED_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173","http://localhost:3000"]
+      
+      # Content Moderation (ViSoBERT-HSD)
+      - ENABLE_CONTENT_MODERATION=true
+      - MODERATION_CONFIDENCE_THRESHOLD=0.7
+      # Set to false for real-time streaming moderation (check every update)
+      # Set to true to only check final transcription (after flush/silence)
+      - MODERATION_ON_FINAL_ONLY=false
+      
+      # Database
+      - DATABASE_URL=sqlite+aiosqlite:///data/database.db
+      
+      # ONNX Runtime optimization
+      - OMP_NUM_THREADS=4
+      - ORT_DISABLE_SPIN_WAIT=1
+    
+    # Shared memory for ONNX Runtime
+    # Required for efficient inference with shared tensors
+    shm_size: '512mb'
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # Development: Enable hot reload with uvicorn
+    command: >
+      uvicorn main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+      --reload-dir /app/app

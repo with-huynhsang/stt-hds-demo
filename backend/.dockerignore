@@ -1,0 +1,83 @@
+# =============================================================================
+# Backend Docker Ignore
+# Exclude files not needed in production container
+# =============================================================================
+
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environment
+env/
+venv/
+.venv/
+ENV/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Testing
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Local development files
+.env
+.env.local
+.env.*.local
+*.local
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Model storage (mounted as volume)
+models_storage/
+
+# Database files (mounted as volume)
+*.db
+*.sqlite
+*.sqlite3
+database.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Serena/MCP local files
+.serena/
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
