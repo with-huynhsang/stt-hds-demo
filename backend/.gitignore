@@ -5,3 +5,4 @@ env
 models_storage
 .env
 *.db*
+debug_dumps/
