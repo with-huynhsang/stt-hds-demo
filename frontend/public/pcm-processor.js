@@ -25,6 +25,9 @@ class PCMProcessor extends AudioWorkletProcessor {
     // Configuration with defaults
     const processorOptions = options?.processorOptions || {}
     
+    // Input gain to prevent clipping (default: 0.8)
+    this.inputGain = processorOptions.inputGain || 0.8
+    
     // Buffer size in samples at target sample rate (default: 4096 = ~256ms at 16kHz)
     this.bufferSize = processorOptions.bufferSize || 4096
     // Target sample rate for output
@@ -57,14 +60,14 @@ class PCMProcessor extends AudioWorkletProcessor {
     this.notifyState('running')
     
     // Log config for debugging
-    console.log(`[PCMProcessor] Initialized: input=${this.inputSampleRate}Hz, target=${this.targetSampleRate}Hz, ratio=${this.resampleRatio.toFixed(3)}, buffer=${this.bufferSize}`)
+    console.log(`[PCMProcessor] Initialized: input=${this.inputSampleRate}Hz, target=${this.targetSampleRate}Hz, gain=${this.inputGain}, ratio=${this.resampleRatio.toFixed(3)}, buffer=${this.bufferSize}`)
   }
 
   /**
    * Handle messages from main thread
    */
   handleMessage(event) {
-    const { type, bufferSize, targetSampleRate } = event.data || {}
+    const { type, bufferSize, targetSampleRate, inputGain } = event.data || {}
     
     switch (type) {
       case 'stop':
@@ -81,6 +84,9 @@ class PCMProcessor extends AudioWorkletProcessor {
         if (targetSampleRate && targetSampleRate > 0) {
           this.targetSampleRate = targetSampleRate
           this.resampleRatio = this.inputSampleRate / this.targetSampleRate
+        }
+        if (inputGain !== undefined) {
+             this.inputGain = inputGain
         }
         break
         
@@ -195,6 +201,9 @@ class PCMProcessor extends AudioWorkletProcessor {
    * Add a sample to the buffer and track audio level
    */
   addSample(sample) {
+    // Apply gain
+    sample = sample * this.inputGain
+
     // Clamp sample to valid range
     const clampedSample = Math.max(-1, Math.min(1, sample))
     

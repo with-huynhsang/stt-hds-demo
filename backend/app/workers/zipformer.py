@@ -1,5 +1,6 @@
 import os
 import time
+import wave
 import numpy as np
 
 from app.workers.base import BaseWorker
@@ -20,6 +21,11 @@ class ZipformerWorker(BaseWorker):
         # Use settings for model path
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
         model_dir = os.path.join(base_dir, settings.MODEL_STORAGE_PATH, "zipformer", "hynt-zipformer-30M-6000h")
+        
+        # Ensure debug dumps directory exists
+        self.dumps_dir = os.path.join(base_dir, "debug_dumps")
+        os.makedirs(self.dumps_dir, exist_ok=True)
+        self.wav_file = None
         
         tokens = os.path.join(model_dir, "tokens.txt")
         encoder = os.path.join(model_dir, "encoder-epoch-20-avg-10.int8.onnx")
@@ -63,6 +69,24 @@ class ZipformerWorker(BaseWorker):
             text = text[0].upper() + text[1:]
         return text
 
+    def _open_new_dump_file(self):
+        """Open a new WAV file for debugging audio dump."""
+        if self.wav_file:
+            self.wav_file.close()
+            
+        timestamp = int(time.time() * 1000)
+        filename = os.path.join(self.dumps_dir, f"session_{timestamp}.wav")
+        self.logger.info(f"Starting debug audio dump: {filename}")
+        
+        try:
+            self.wav_file = wave.open(filename, "wb")
+            self.wav_file.setnchannels(1)
+            self.wav_file.setsampwidth(2)  # 16-bit
+            self.wav_file.setframerate(16000)
+        except Exception as e:
+            self.logger.error(f"Failed to open WAV dump file: {e}")
+            self.wav_file = None
+
     def process(self, item):
         if not self.recognizer:
             return
@@ -71,20 +95,38 @@ class ZipformerWorker(BaseWorker):
         
         if isinstance(item, dict):
             audio_data = item.get("audio")
+            
+            # Start new dump file on reset
             if item.get("reset"):
                 self.logger.debug("Resetting stream for new session")
                 self.stream = self.recognizer.create_stream()
                 self.last_text = ""  # Reset deduplication tracker
+                self._open_new_dump_file()
+                
                 if not audio_data:
                     return
+
             if item.get("flush"):
                 # Force output remaining result and reset stream
                 self.logger.info("Flush signal received - outputting final result")
                 force_output = True
+                
+                # Close dump file on flush
+                if self.wav_file:
+                    self.wav_file.close()
+                    self.wav_file = None
+                    
         else:
             audio_data = item
 
         if audio_data:
+            # Dump raw audio for debugging
+            if self.wav_file:
+                try:
+                    self.wav_file.writeframes(audio_data)
+                except Exception as e:
+                    self.logger.error(f"Failed to write audio dump: {e}")
+
             # Start timing for latency measurement
             start_time = time.perf_counter()
             
@@ -134,3 +176,4 @@ class ZipformerWorker(BaseWorker):
             self.stream = self.recognizer.create_stream()
             self.last_text = ""
             self.logger.debug("Stream reset after flush")
+
