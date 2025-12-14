@@ -143,6 +143,7 @@ class SpanDetectorWorker(BaseWorker):
         """
         from optimum.onnxruntime import ORTModelForTokenClassification
         from transformers import AutoTokenizer
+        import onnxruntime as ort
         
         # Get model paths
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
@@ -167,14 +168,22 @@ class SpanDetectorWorker(BaseWorker):
                 f"Please run 'python scripts/setup_hsd_span_model.py' to download and convert the model."
             )
         
+        # Configure session options for CPU optimization
+        # Limit threads to 1 to avoid contention with STT worker
+        sess_options = ort.SessionOptions()
+        sess_options.intra_op_num_threads = 1
+        sess_options.inter_op_num_threads = 1
+        sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        
         # Load tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
         
-        # Load ONNX model with correct file name
+        # Load ONNX model with correct file name and session options
         self.model = ORTModelForTokenClassification.from_pretrained(
             model_path,
             file_name=file_name,
-            provider="CPUExecutionProvider"
+            provider="CPUExecutionProvider",
+            session_options=sess_options
         )
         
         self.logger.info(f"ViSoBERT-HSD-Span model loaded successfully from {model_path}")

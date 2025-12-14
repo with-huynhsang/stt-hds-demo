@@ -38,22 +38,25 @@ class ZipformerWorker(BaseWorker):
         self.logger.info(f"Loading model from {model_dir}")
 
         try:
-            recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
+            # Use OnlineRecognizer for streaming (incremental processing)
+            # This maintains state between chunks, drastically reducing CPU load compared to OfflineRecognizer
+            self.recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
                 tokens=tokens,
                 encoder=encoder,
                 decoder=decoder,
                 joiner=joiner,
-                num_threads=2,
+                num_threads=1,  # CRITICAL: Limit to 1 thread for CPU-only i5 to prevent contention
                 sample_rate=16000,
                 feature_dim=80,
                 decoding_method="greedy_search",
                 provider="cpu",
             )
             
-            self.recognizer = recognizer
-            self.stream = recognizer.create_stream()
-            self.last_text = ""  # Track last sent text for deduplication
-            self.logger.info("Zipformer model loaded successfully")
+            self.recognizer_type = "online"
+            # Online stream creation
+            self.stream = self.recognizer.create_stream()
+            self.last_text = ""
+            self.logger.info("Zipformer model loaded successfully (OnlineRecognizer, threads=1)")
             
         except Exception as e:
             self.logger.error(f"Failed to load Zipformer model: {e}", exc_info=True)
@@ -134,13 +137,19 @@ class ZipformerWorker(BaseWorker):
             samples = np.frombuffer(audio_data, dtype=np.int16)
             samples = samples.astype(np.float32) / 32768.0
             
+            # 1. Accept waveform into the stream
             self.stream.accept_waveform(16000, samples)
-            self.recognizer.decode_stream(self.stream)
+            
+            # 2. Check if ready to decode
+            while self.recognizer.is_ready(self.stream):
+                # 3. Process the stream
+                self.recognizer.decode_stream(self.stream)
             
             # Calculate processing latency
             latency_ms = (time.perf_counter() - start_time) * 1000
             
-            raw_text = self.stream.result.text
+            # 4. Get text result (OnlineRecognizer returns cumulative text)
+            raw_text = self.recognizer.get_result(self.stream).text
             formatted_text = self.format_vietnamese_text(raw_text)
             
             # Only send result if text has actually changed (deduplication)
@@ -150,7 +159,7 @@ class ZipformerWorker(BaseWorker):
                     "text": formatted_text,
                     "is_final": False,
                     "model": "zipformer",
-                    "workflow_type": "streaming",  # Streaming = text contains full transcription
+                    "workflow_type": "streaming",
                     "latency_ms": round(latency_ms, 2)
                 }
                 
@@ -158,7 +167,12 @@ class ZipformerWorker(BaseWorker):
         
         # Handle flush: output final result and reset stream
         if force_output:
-            raw_text = self.stream.result.text
+            # Signal input finished to get any remaining buffers processed
+            self.stream.input_finished()
+            while self.recognizer.is_ready(self.stream):
+                self.recognizer.decode_stream(self.stream)
+                
+            raw_text = self.recognizer.get_result(self.stream).text
             formatted_text = self.format_vietnamese_text(raw_text)
             
             if formatted_text:
@@ -166,7 +180,7 @@ class ZipformerWorker(BaseWorker):
                     "text": formatted_text,
                     "is_final": True,  # Mark as final on flush
                     "model": "zipformer",
-                    "workflow_type": "streaming",  # Streaming = text contains full transcription
+                    "workflow_type": "streaming",
                     "latency_ms": 0
                 }
                 self.output_queue.put(result)

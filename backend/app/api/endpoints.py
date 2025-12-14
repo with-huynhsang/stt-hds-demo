@@ -270,6 +270,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 empty_checks = 0
                 max_empty_checks = 200  # 200 * 50ms = 10s max wait after receive ends
                 
+                last_moderation_time = 0  # Initialize throttling tracker
+                
                 while True:
                     # Use asyncio.to_thread for blocking Queue operations
                     try:
@@ -296,15 +298,18 @@ async def websocket_endpoint(websocket: WebSocket):
                             # Check manager.moderation_enabled for real-time toggle support
                             is_final = result.get("is_final", False)
                             text_content = result.get("text", "").strip()
+                            current_time = asyncio.get_event_loop().time()
                             
-                            # Determine if we should run moderation on this result
-                            # - If MODERATION_ON_FINAL_ONLY is True, only run on final results
-                            # - Otherwise, run on all results (streaming moderation)
+                            # Debounce logic:
+                            # 1. ALWAYS moderate if is_final=True (priority)
+                            # 2. Otherwise/Streaming: moderate only if > 500ms has allowed since last check
+                            should_check_time = (current_time - last_moderation_time) > 0.5
+                            
                             should_moderate = (
                                 text_content 
                                 and manager.moderation_enabled  # Check global state for toggle support
                                 and span_detector_input_q is not None
-                                and (not settings.MODERATION_ON_FINAL_ONLY or is_final)
+                                and (is_final or (should_check_time and not settings.MODERATION_ON_FINAL_ONLY))
                             )
                             
                             if should_moderate:
@@ -318,6 +323,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                 }
                                 try:
                                     await asyncio.to_thread(span_detector_input_q.put_nowait, moderation_request)
+                                    last_moderation_time = current_time  # Update last check time
                                     logger.info(f"Sent to moderation (final={is_final}): '{text_content[:40]}...'")
                                 except Exception as e:
                                     logger.warning(f"Failed to send to moderation: {e}")
