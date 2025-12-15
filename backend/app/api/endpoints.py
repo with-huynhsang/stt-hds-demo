@@ -271,6 +271,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 max_empty_checks = 200  # 200 * 50ms = 10s max wait after receive ends
                 
                 last_moderation_time = 0  # Initialize throttling tracker
+                last_db_save_time = 0     # Initialize DB write throttling tracker
                 
                 while True:
                     # Use asyncio.to_thread for blocking Queue operations
@@ -328,10 +329,24 @@ async def websocket_endpoint(websocket: WebSocket):
                                 except Exception as e:
                                     logger.warning(f"Failed to send to moderation: {e}")
                             
-                            # Save to DB only if we have a session ID from client
+                            # Save to DB with throttling to reduce I/O overhead
+                            # Strategy:
+                            # 1. ALWAYS save if is_final=True (Immediate)
+                            # 2. For partial results: Save only every 2.0 seconds
+                            
+                            should_save_db = False
+                            time_since_save = current_time - last_db_save_time
+                            
+                            if is_final:
+                                should_save_db = True
+                            elif time_since_save > 2.0:  # 2 seconds throttle window
+                                should_save_db = True
+                            
                             latency_ms = result.get("latency_ms", 0.0)
-                            workflow_type = result.get("workflow_type", "streaming")  # Default to streaming for zipformer
-                            if text_content and session_id:
+                            workflow_type = result.get("workflow_type", "streaming")
+                            
+                            if should_save_db and text_content and session_id:
+                                last_db_save_time = current_time  # Update save timestamp
                                 await _save_transcription(
                                     session_id=session_id,
                                     model_id=model_name,

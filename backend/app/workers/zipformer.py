@@ -38,25 +38,30 @@ class ZipformerWorker(BaseWorker):
         self.logger.info(f"Loading model from {model_dir}")
 
         try:
-            # Use OnlineRecognizer for streaming (incremental processing)
-            # This maintains state between chunks, drastically reducing CPU load compared to OfflineRecognizer
-            self.recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
+            # Revert to OfflineRecognizer (OnlineRecognizer is incompatible with this model model)
+            # We will use "Segmented Buffering" to simulate streaming without infinite history growth
+            self.recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
                 tokens=tokens,
                 encoder=encoder,
                 decoder=decoder,
                 joiner=joiner,
-                num_threads=1,  # CRITICAL: Limit to 1 thread for CPU-only i5 to prevent contention
+                num_threads=1,  # Keep 1 thread for CPU efficiency
                 sample_rate=16000,
                 feature_dim=80,
                 decoding_method="greedy_search",
                 provider="cpu",
             )
             
-            self.recognizer_type = "online"
-            # Online stream creation
+            self.recognizer_type = "offline"
             self.stream = self.recognizer.create_stream()
+            
+            # Buffering logic state
+            self.committed_text = ""  # Text from previous cleared segments
+            self.segment_samples = 0   # Samples in current active stream
+            self.MAX_SEGMENT_SAMPLES = 15 * 16000  # Reset stream every 15 seconds
+            
             self.last_text = ""
-            self.logger.info("Zipformer model loaded successfully (OnlineRecognizer, threads=1)")
+            self.logger.info("Zipformer model loaded successfully (OfflineRecognizer, threads=1, segmented)")
             
         except Exception as e:
             self.logger.error(f"Failed to load Zipformer model: {e}", exc_info=True)
@@ -104,6 +109,8 @@ class ZipformerWorker(BaseWorker):
                 self.logger.debug("Resetting stream for new session")
                 self.stream = self.recognizer.create_stream()
                 self.last_text = ""  # Reset deduplication tracker
+                self.committed_text = ""  # Reset buffering
+                self.segment_samples = 0
                 self._open_new_dump_file()
                 
                 if not audio_data:
@@ -137,20 +144,34 @@ class ZipformerWorker(BaseWorker):
             samples = np.frombuffer(audio_data, dtype=np.int16)
             samples = samples.astype(np.float32) / 32768.0
             
-            # 1. Accept waveform into the stream
+            # --- Segmented Buffering Logic ---
+            # 1. Accept waveform into current stream
             self.stream.accept_waveform(16000, samples)
+            self.segment_samples += len(samples)
             
-            # 2. Check if ready to decode
-            while self.recognizer.is_ready(self.stream):
-                # 3. Process the stream
-                self.recognizer.decode_stream(self.stream)
+            # 2. Decode current stream
+            self.recognizer.decode_stream(self.stream)
+            
+            # 3. Check for segment limit (Smart Buffering)
+            current_segment_text = self.stream.result.text
+            
+            # If segment exceeds limit, commit text and reset stream to prevent lag
+            if self.segment_samples > self.MAX_SEGMENT_SAMPLES:
+                if current_segment_text:
+                    self.committed_text = f"{self.committed_text} {current_segment_text}".strip()
+                    self.logger.info(f"Segment limit reached ({self.segment_samples} samples). Resetting stream. Committed: ...{self.committed_text[-30:]}")
+                
+                # Reset stream for next segment
+                self.stream = self.recognizer.create_stream()
+                self.segment_samples = 0
+                current_segment_text = ""
+            
+            # 4. Combine committed text + current incomplete segment
+            full_text = f"{self.committed_text} {current_segment_text}".strip()
+            formatted_text = self.format_vietnamese_text(full_text)
             
             # Calculate processing latency
             latency_ms = (time.perf_counter() - start_time) * 1000
-            
-            # 4. Get text result (OnlineRecognizer returns cumulative text)
-            raw_text = self.recognizer.get_result(self.stream).text
-            formatted_text = self.format_vietnamese_text(raw_text)
             
             # Only send result if text has actually changed (deduplication)
             if formatted_text and formatted_text != self.last_text:
@@ -167,13 +188,10 @@ class ZipformerWorker(BaseWorker):
         
         # Handle flush: output final result and reset stream
         if force_output:
-            # Signal input finished to get any remaining buffers processed
-            self.stream.input_finished()
-            while self.recognizer.is_ready(self.stream):
-                self.recognizer.decode_stream(self.stream)
-                
-            raw_text = self.recognizer.get_result(self.stream).text
-            formatted_text = self.format_vietnamese_text(raw_text)
+            # For Offline stream, result is already final for the processed audio
+            current_segment_text = self.stream.result.text
+            full_text = f"{self.committed_text} {current_segment_text}".strip()
+            formatted_text = self.format_vietnamese_text(full_text)
             
             if formatted_text:
                 result = {
@@ -186,8 +204,10 @@ class ZipformerWorker(BaseWorker):
                 self.output_queue.put(result)
                 self.logger.info(f"Flush output: '{formatted_text[:50]}...'")
             
-            # Reset stream and last_text to prevent accumulation in next session
+            # Reset everything
             self.stream = self.recognizer.create_stream()
+            self.committed_text = ""
+            self.segment_samples = 0
             self.last_text = ""
             self.logger.debug("Stream reset after flush")
 

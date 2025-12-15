@@ -140,18 +140,24 @@ class ModelManager:
         # Send stop signal
         if model_name in self.input_queues:
             try:
+                # If queue is full, try to drain one item to make space for STOP signal
+                if self.input_queues[model_name].full():
+                    try:
+                        self.input_queues[model_name].get_nowait()
+                    except:
+                        pass
                 self.input_queues[model_name].put_nowait("STOP")
             except Exception as e:
                 logger.warning(f"Could not send stop signal: {e}")
         
         # Wait for graceful shutdown
         process = self.active_processes[model_name]
-        process.join(timeout=10)
+        process.join(timeout=3)  # Reduced wait time from 10s to 3s
         
         if process.is_alive():
             logger.warning(f"Model {model_name} did not stop gracefully, terminating")
             process.terminate()
-            process.join(timeout=5)
+            process.join(timeout=2)
             
             if process.is_alive():
                 logger.error(f"Model {model_name} still alive after terminate, killing")
@@ -289,18 +295,24 @@ class ModelManager:
         # Send stop signal
         if self.span_detector_input_queue is not None:
             try:
+                 # If queue is full, try to drain one item to make space for STOP signal
+                if self.span_detector_input_queue.full():
+                    try:
+                        self.span_detector_input_queue.get_nowait()
+                    except:
+                        pass
                 self.span_detector_input_queue.put_nowait("STOP")
             except Exception as e:
                 logger.warning(f"Could not send stop signal to span detector: {e}")
         
         # Wait for graceful shutdown
         process = self.span_detector_process
-        process.join(timeout=10)
+        process.join(timeout=3)
         
         if process.is_alive():
             logger.warning(f"Span detector {detector_name} did not stop gracefully, terminating")
             process.terminate()
-            process.join(timeout=5)
+            process.join(timeout=2)
             
             if process.is_alive():
                 logger.error(f"Span detector {detector_name} still alive after terminate, killing")

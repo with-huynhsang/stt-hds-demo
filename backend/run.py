@@ -118,7 +118,15 @@ Examples:
     print()
     
     # Run server
-    uvicorn.run(**config)
+    # Run server
+    try:
+        uvicorn.run(**config)
+    except KeyboardInterrupt:
+        print("\n🛑 Force shutdown requested...")
+        sys.exit(0)
+    except Exception as e:
+        print(f"\n❌ Unexpected error: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

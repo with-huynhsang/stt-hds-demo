@@ -51,7 +51,8 @@ class BaseWorker(ABC):
             while self.is_running:
                 try:
                     # Get data from input queue with timeout
-                    item = self.input_queue.get(timeout=1.0)
+                    # Short timeout for faster shutdown responsiveness
+                    item = self.input_queue.get(timeout=0.1)
                     
                     if item == "STOP":
                         self.logger.info("Received stop signal")
