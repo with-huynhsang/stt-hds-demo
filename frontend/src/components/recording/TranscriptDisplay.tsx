@@ -1,6 +1,11 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useMemo } from 'react'
 import { Typography, Card, Empty, Spin, theme } from 'antd'
-import { AudioOutlined, LoadingOutlined, CloudSyncOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import {
+  AudioOutlined,
+  LoadingOutlined,
+  CloudSyncOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons'
 import { cn } from '@/lib/utils'
 import { ModerationBadge, type ModerationLabel } from './ModerationBadge'
 import { KeywordHighlight } from './KeywordHighlight'
@@ -78,9 +83,9 @@ export interface TranscriptDisplayProps {
 /**
  * Real-time transcript display component
  * Shows finalized text and interim (in-progress) text with distinct styling
- * 
+ *
  * For streaming models (Zipformer): Shows real-time interim text
- * 
+ *
  * @example
  * ```tsx
  * <TranscriptDisplay
@@ -119,13 +124,28 @@ export function TranscriptDisplay({
   }, [transcript, interimText, autoScroll])
 
   const hasContent = transcript.trim() || interimText?.trim()
-  
+
   // Format latency for display
   const formatLatency = (ms: [number, number]) => {
     const [min, max] = ms
     if (max < 1000) return `${min}-${max}ms`
     return `${(min / 1000).toFixed(1)}-${(max / 1000).toFixed(1)}s`
   }
+
+  // Deduplicate interim text: Remove prefix if it matches finalized transcript
+  // This handles cases where backend sends cumulative text as interim even after finalizing some parts
+  const displayInterim = useMemo(() => {
+    if (!interimText || !transcript) return interimText
+
+    // Normalize for comparison (trim to avoid whitespace issues)
+    const normalizedTranscript = transcript.trim()
+    const normalizedInterim = interimText.trim()
+
+    if (normalizedInterim.startsWith(normalizedTranscript)) {
+      return normalizedInterim.slice(normalizedTranscript.length).trim()
+    }
+    return normalizedInterim
+  }, [transcript, interimText])
 
   return (
     <Card
@@ -155,8 +175,8 @@ export function TranscriptDisplay({
           <Text strong>Nội dung chuyển đổi</Text>
           {/* Moderation badge - show when result is available */}
           {moderationResult && (
-            <ModerationBadge 
-              label={moderationResult.label} 
+            <ModerationBadge
+              label={moderationResult.label}
               confidence={moderationResult.confidence}
               detectedKeywords={moderationResult.detected_keywords}
             />
@@ -170,8 +190,12 @@ export function TranscriptDisplay({
                 gap: 4,
                 padding: '2px 8px',
                 borderRadius: token.borderRadiusSM,
-                backgroundColor: isBufferedModel ? token.colorWarningBg : token.colorSuccessBg,
-                color: isBufferedModel ? token.colorWarning : token.colorSuccess,
+                backgroundColor: isBufferedModel
+                  ? token.colorWarningBg
+                  : token.colorSuccessBg,
+                color: isBufferedModel
+                  ? token.colorWarning
+                  : token.colorSuccess,
                 fontSize: 11,
                 fontWeight: 500,
               }}
@@ -190,7 +214,7 @@ export function TranscriptDisplay({
             </span>
           )}
         </div>
-        
+
         {isRecording && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span
@@ -207,10 +231,13 @@ export function TranscriptDisplay({
             </Text>
           </div>
         )}
-        
+
         {isConnecting && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Spin indicator={<LoadingOutlined style={{ fontSize: 12 }} spin />} size="small" />
+            <Spin
+              indicator={<LoadingOutlined style={{ fontSize: 12 }} spin />}
+              size="small"
+            />
             <Text type="secondary" style={{ fontSize: 12 }}>
               Đang kết nối...
             </Text>
@@ -257,9 +284,9 @@ export function TranscriptDisplay({
                   wordBreak: 'break-word',
                 }}
               >
-                {showKeywordHighlight && 
-                 moderationResult?.detected_keywords && 
-                 moderationResult.detected_keywords.length > 0 ? (
+                {showKeywordHighlight &&
+                moderationResult?.detected_keywords &&
+                moderationResult.detected_keywords.length > 0 ? (
                   <KeywordHighlight
                     text={transcript}
                     keywords={moderationResult.detected_keywords}
@@ -270,41 +297,48 @@ export function TranscriptDisplay({
                 )}
               </Paragraph>
             )}
-            
+
             {/* Interim text (in-progress) - Different display for streaming vs buffered */}
-            {isRecording && !interimText && isBufferedModel && (
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: token.marginSM,
-                  padding: token.paddingLG,
-                  marginTop: transcript ? token.marginSM : 0,
-                  backgroundColor: token.colorBgContainer,
-                  borderRadius: token.borderRadius,
-                  border: `1px dashed ${token.colorBorder}`,
-                }}
-              >
-                <Spin indicator={<LoadingOutlined style={{ fontSize: 24 }} spin />} />
-                <div style={{ textAlign: 'center' }}>
-                  <Text type="secondary" style={{ fontSize: token.fontSize }}>
-                    Đang xử lý âm thanh...
-                  </Text>
-                  {expectedLatencyMs && (
-                    <div>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        Thời gian chờ: {formatLatency(expectedLatencyMs)}
-                      </Text>
-                    </div>
-                  )}
+            {isRecording &&
+              !displayInterim &&
+              !transcript &&
+              isBufferedModel && (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: token.marginSM,
+                    padding: token.paddingLG,
+                    marginTop: transcript ? token.marginSM : 0,
+                    backgroundColor: token.colorBgContainer,
+                    borderRadius: token.borderRadius,
+                    border: `1px dashed ${token.colorBorder}`,
+                  }}
+                >
+                  <Spin
+                    indicator={
+                      <LoadingOutlined style={{ fontSize: 24 }} spin />
+                    }
+                  />
+                  <div style={{ textAlign: 'center' }}>
+                    <Text type="secondary" style={{ fontSize: token.fontSize }}>
+                      Đang xử lý âm thanh...
+                    </Text>
+                    {expectedLatencyMs && (
+                      <div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          Thời gian chờ: {formatLatency(expectedLatencyMs)}
+                        </Text>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
-            
+              )}
+
             {/* Streaming interim text */}
-            {interimText && (
+            {displayInterim && (
               <Text
                 style={{
                   fontSize: token.fontSizeLG,
@@ -314,7 +348,7 @@ export function TranscriptDisplay({
                   opacity: 0.8,
                 }}
               >
-                {interimText}
+                {displayInterim}
                 {/* Blinking cursor */}
                 <span
                   style={{
