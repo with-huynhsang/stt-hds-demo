@@ -48,6 +48,13 @@ interface AppState {
   // Content moderation state
   moderationEnabled: boolean
   setModerationEnabled: (enabled: boolean) => void
+
+  // Persisted moderation results
+  latestModeration: any | null // Using any to avoid circular dependency with type definition
+  setLatestModeration: (result: any | null) => void
+  
+  moderationResults: any[]
+  setModerationResults: (results: any[]) => void
 }
 
 export const useAppStore = create<AppState>()(
@@ -92,6 +99,12 @@ export const useAppStore = create<AppState>()(
 
         moderationEnabled: false,
         setModerationEnabled: (moderationEnabled) => set({ moderationEnabled }),
+
+        latestModeration: null,
+        setLatestModeration: (latestModeration) => set({ latestModeration }),
+
+        moderationResults: [],
+        setModerationResults: (moderationResults) => set({ moderationResults }),
       }),
       {
         name: 'voice2text-storage',
@@ -100,6 +113,8 @@ export const useAppStore = create<AppState>()(
           sidebarCollapsed: state.sidebarCollapsed,
           selectedDeviceId: state.selectedDeviceId,
           moderationEnabled: state.moderationEnabled,
+          latestModeration: state.latestModeration,
+          moderationResults: state.moderationResults,
         }),
       }
     )

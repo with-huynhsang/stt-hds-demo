@@ -41,6 +41,11 @@ export function useRecording(options: UseRecordingOptions = {}) {
     currentTranscript,
     setCurrentTranscript,
     clearTranscript,
+    // Moderation state
+    latestModeration: storedLatestModeration,
+    setLatestModeration,
+    moderationResults: storedModerationResults,
+    setModerationResults,
   } = useAppStore()
 
   // Model helpers for dynamic timeout
@@ -79,6 +84,13 @@ export function useRecording(options: UseRecordingOptions = {}) {
     // internal state (interimText, fullTranscript) and displayed via TranscriptDisplay
   }, [])
 
+  // Stable moderation callback to sync with store
+  const handleModeration = useCallback((result: any) => {
+    setLatestModeration(result)
+    // Append to results
+    setModerationResults([...(storedModerationResults || []), result])
+  }, [setLatestModeration, setModerationResults, storedModerationResults])
+
   // Stable error callback
   const handleTranscriptionError = useCallback((error: string) => {
     console.error('[Recording] Transcription error:', error)
@@ -89,6 +101,7 @@ export function useRecording(options: UseRecordingOptions = {}) {
     model: selectedModel,
     sampleRate,
     onTranscription: handleTranscription,
+    onModeration: handleModeration,
     onError: handleTranscriptionError,
   })
 
@@ -134,6 +147,9 @@ export function useRecording(options: UseRecordingOptions = {}) {
       
       // Clear previous transcript in store first
       clearTranscript()
+      setLatestModeration(null)
+      setModerationResults([])
+      
       // Also clear the ref value to ensure handleTranscription starts fresh
       currentTranscriptRef.current = ''
       // Clear transcription hook state
@@ -299,9 +315,9 @@ export function useRecording(options: UseRecordingOptions = {}) {
     fullTranscript: transcription.fullTranscript,
     finalizedSegments: transcription.finalizedSegments,
 
-    // Moderation data (from ViSoBERT-HSD)
-    latestModeration: transcription.latestModeration,
-    moderationResults: transcription.moderationResults,
+    // Moderation data (prefer live hook state, fallback to stored state for persistence)
+    latestModeration: transcription.latestModeration || storedLatestModeration,
+    moderationResults: transcription.moderationResults.length > 0 ? transcription.moderationResults : storedModerationResults,
 
     // Session info
     sessionId,
